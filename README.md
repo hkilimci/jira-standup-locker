@@ -2,6 +2,8 @@
 
 Chrome Manifest V3 extension for Jira Cloud standups.
 
+![Jira Standup Order Locker screenshot](assets/jira-standup-locker.png)
+
 ## Features
 
 - Adds one lock/unlock icon next to Jira Standup's native Previous button.
