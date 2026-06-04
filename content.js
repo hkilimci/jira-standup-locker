@@ -9,6 +9,7 @@
   const MUTATION_DEBOUNCE_MS = 150;
   const INACTIVE_GRACE_MS = 4000;
   const MANUAL_SHUFFLE_WINDOW_MS = 3000;
+  const END_STANDUP_SUPPRESS_MS = 5000;
   const CLEAR_FILTER_RETRY_MS = 500;
   const CLEAR_FILTER_WINDOW_MS = 30000;
   const CLEAR_FILTER_MAX_CLICKS = 6;
@@ -39,15 +40,14 @@
     currentSessionKey: null,
     inactiveTimer: 0,
     reconcileTimer: 0,
-    observer: null,
     restoring: false,
     applyingMarkers: false,
     manualShuffleUntil: 0,
+    suppressCacheUntil: 0,
     boardFiltersClearedOnLoad: false,
     boardFilterClearUntil: 0,
     boardFilterClearClicks: 0,
     boardFilterClearTimer: 0,
-    lastUrl: location.href,
     storageReady: false,
     running: false,
     queued: false
@@ -59,25 +59,14 @@
     }
   };
 
-  const sanitizeCache = (cache) => {
-    if (!cache || typeof cache !== "object") {
-      return cache;
-    }
-
-    const cleanCache = { ...cache };
-    delete cleanCache.timerState;
-    return cleanCache;
-  };
-
   const storage = {
     async get() {
       const result = await chrome.storage.local.get(STORAGE_KEY);
-      return sanitizeCache(result[STORAGE_KEY] ?? null);
+      return result[STORAGE_KEY] ?? null;
     },
     async set(cache) {
-      const cleanCache = sanitizeCache(cache);
-      state.cache = cleanCache;
-      await chrome.storage.local.set({ [STORAGE_KEY]: cleanCache });
+      state.cache = cache;
+      await chrome.storage.local.set({ [STORAGE_KEY]: cache });
     }
   };
 
@@ -116,7 +105,7 @@
       .trim();
   };
 
-  const namesEqual = (left, right) => {
+  const arraysEqual = (left, right) => {
     return left.length === right.length && left.every((value, index) => value === right[index]);
   };
 
@@ -173,15 +162,18 @@
     }) ?? null;
   };
 
-  const findEndStandupButton = (root) => {
-    return Array.from(root.querySelectorAll("button")).find((button) => {
-      return textMatches(button, /^End standup$/i) ||
-        /^End standup$/i.test(button.getAttribute("aria-label") || "");
-    }) ?? null;
+  const isEndStandupTrigger = (element) => {
+    return textMatches(element, /^End standup$/i) ||
+      /^End standup$/i.test(element.getAttribute("aria-label") || "");
   };
 
   const isJiraBoardPath = () => {
     return /\/jira\/software\/c\/projects\/[^/]+\/boards\/\d+/.test(location.pathname);
+  };
+
+  const hasBoardFilterParams = () => {
+    return /[?&](text|quickFilter|assignee|label|labels|epics|issueType|issueTypes|issueParent|customFilter|statuses|sprints)=/i
+      .test(location.search);
   };
 
   const findClearFiltersButton = () => {
@@ -231,7 +223,6 @@
     element.dispatchEvent(new MouseEvent("mousedown", eventInit));
     element.dispatchEvent(new MouseEvent("mouseup", eventInit));
     element.dispatchEvent(new MouseEvent("click", eventInit));
-    element.click();
   };
 
   const scheduleBoardFilterClearAttempt = (delay = CLEAR_FILTER_RETRY_MS) => {
@@ -256,9 +247,17 @@
       clickElementLikeUser(button);
       log("board filters clear click", state.boardFilterClearClicks);
       if (state.boardFilterClearClicks >= CLEAR_FILTER_MAX_CLICKS) {
+        state.boardFilterClearUntil = 0;
         return;
       }
       scheduleBoardFilterClearAttempt(900);
+      return;
+    }
+
+    // Button gone after at least one click: load-time filters are cleared.
+    // Close the window so filters the user applies afterwards are untouched.
+    if (state.boardFilterClearClicks > 0) {
+      state.boardFilterClearUntil = 0;
       return;
     }
 
@@ -281,7 +280,7 @@
     }
 
     state.boardFiltersClearedOnLoad = true;
-    if (!location.search && !findClearFiltersButton()) {
+    if (!hasBoardFilterParams() && !findClearFiltersButton()) {
       return;
     }
 
@@ -396,7 +395,7 @@
       });
     }
 
-    return rows.length > 0 ? { list, container, rows } : null;
+    return rows.length > 0 ? { container, rows } : null;
   };
 
   const createSessionKey = (snapshot) => {
@@ -548,10 +547,6 @@
     updateLockButton();
   };
 
-  const ordersEqual = (left, right) => {
-    return left.length === right.length && left.every((value, index) => value === right[index]);
-  };
-
   const createParticipatedBadge = () => {
     const badge = document.createElement("span");
     badge.dataset.jiraStandupLockerParticipated = "true";
@@ -648,7 +643,7 @@
       state.cache.participatedNames ?? []
     );
 
-    if (namesEqual(current, merged)) {
+    if (arraysEqual(current, merged)) {
       return false;
     }
 
@@ -681,7 +676,7 @@
     }
 
     const currentUnits = snapshot.rows.map((row) => row.unit);
-    if (ordersEqual(currentUnits, desiredUnits)) {
+    if (arraysEqual(currentUnits, desiredUnits)) {
       return false;
     }
 
@@ -758,11 +753,6 @@
         state.storageReady = true;
       }
 
-      if (state.lastUrl !== location.href) {
-        state.lastUrl = location.href;
-        log("url changed", state.lastUrl);
-      }
-
       const root = findStandupRoot();
       const snapshot = root ? getSnapshot(root) : null;
       if (!root || !snapshot) {
@@ -771,6 +761,13 @@
       }
 
       ensureLockButton(root, snapshot);
+
+      // After End standup the standup DOM can linger briefly; skip cache
+      // writes so the cleared cache is not immediately recreated.
+      if (Date.now() < state.suppressCacheUntil) {
+        return;
+      }
+
       const refreshedForSession = await markActive(snapshot, root);
       if (refreshedForSession) {
         return;
@@ -801,7 +798,7 @@
       applyParticipatedMarks(snapshot);
 
       if (isManualShuffleWindowOpen()) {
-        if (!ordersEqual(state.cache.participantOrder, snapshot.participantOrder)) {
+        if (!arraysEqual(state.cache.participantOrder, snapshot.participantOrder)) {
           await refreshCache(snapshot, "native shuffle accepted", locked);
           updateLockButton();
         }
@@ -812,7 +809,7 @@
         return;
       }
 
-      if (!ordersEqual(state.cache.participantOrder, snapshot.participantOrder)) {
+      if (!arraysEqual(state.cache.participantOrder, snapshot.participantOrder)) {
         restoreOrder(snapshot, state.cache.participantOrder);
       }
     } catch (error) {
@@ -838,22 +835,27 @@
   };
 
   const onDocumentClick = (event) => {
-    const root = findStandupRoot();
-    if (!root) {
+    const trigger = event.target instanceof Element
+      ? event.target.closest("button, [role='button'], [role='menuitem']")
+      : null;
+    if (!trigger || trigger.id === LOCK_BUTTON_ID) {
       return;
     }
 
-    const button = event.target instanceof Element ? event.target.closest("button") : null;
-    if (!button || button.id === LOCK_BUTTON_ID || !root.contains(button)) {
-      return;
-    }
-
-    if (button === findEndStandupButton(root)) {
+    // End standup may live in a confirmation modal rendered outside the
+    // standup root, so match it anywhere in the document.
+    if (isEndStandupTrigger(trigger)) {
+      state.suppressCacheUntil = Date.now() + END_STANDUP_SUPPRESS_MS;
       void clearStoredCache();
       return;
     }
 
-    if (button === findShuffleButton(root)) {
+    const root = findStandupRoot();
+    if (!root || !root.contains(trigger)) {
+      return;
+    }
+
+    if (trigger === findShuffleButton(root)) {
       state.manualShuffleUntil = Date.now() + MANUAL_SHUFFLE_WINDOW_MS;
       log("native shuffle detected");
       for (const delay of POST_SHUFFLE_CHECK_MS) {
@@ -881,12 +883,12 @@
     watchUrlChanges();
     void clearBoardFiltersOnInitialLoad();
 
-    state.observer = new MutationObserver(() => {
+    const observer = new MutationObserver(() => {
       if (!state.restoring && !state.applyingMarkers) {
         scheduleReconcile("dom mutated");
       }
     });
-    state.observer.observe(document.documentElement, {
+    observer.observe(document.documentElement, {
       childList: true,
       subtree: true
     });
