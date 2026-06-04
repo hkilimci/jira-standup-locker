@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Jira Standup Order Locker",
+  "version": "1.0.0",
+  "description": "Locks Jira Cloud Standup participant order across accidental re-renders.",
+  "permissions": ["storage"],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.atlassian.net/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
