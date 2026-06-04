@@ -13,6 +13,15 @@ Chrome Manifest V3 extension for Jira Cloud standups.
 - Clears the extension cache when Jira's native End standup button is clicked.
 - Optional setting to click Jira board Clear filters after opening a board with active filters.
 
+## Install from Release
+
+1. Download the latest zip from [Releases](https://github.com/hkilimci/jira-standup-locker/releases).
+2. Unzip it to a folder.
+3. Open `chrome://extensions`.
+4. Enable Developer mode.
+5. Click Load unpacked.
+6. Select the unzipped folder.
+
 ## Install Locally
 
 1. Open `chrome://extensions`.
