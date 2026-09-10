@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Jira Standup Order Locker",
-  "version": "1.0.1",
-  "description": "Locks Jira Cloud Standup participant order across accidental re-renders.",
+  "version": "1.1.0",
+  "description": "Locks Jira Cloud Standup order and expands board assignee filters.",
   "permissions": ["storage"],
   "options_ui": {
     "page": "options.html",
@@ -11,7 +11,7 @@
   "content_scripts": [
     {
       "matches": ["https://*.atlassian.net/*"],
-      "js": ["content.js"],
+      "js": ["board-assignee-row.js", "content.js"],
       "run_at": "document_idle"
     }
   ]

@@ -27,6 +27,10 @@
         line-height: 1.4;
       }
 
+      label + label {
+        margin-top: 14px;
+      }
+
       input {
         margin-top: 3px;
       }
@@ -53,6 +57,13 @@
   </head>
   <body>
     <h1>Jira Standup Order Locker</h1>
+    <label>
+      <input id="expand-board-assignees" type="checkbox" checked>
+      <span>
+        <span class="title">Show all board assignees</span>
+        <span class="description">Displays every assignee in a horizontally scrollable row below the board controls.</span>
+      </span>
+    </label>
     <label>
       <input id="clear-board-filters" type="checkbox">
       <span>

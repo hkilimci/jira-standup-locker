@@ -11,6 +11,7 @@ Chrome Manifest V3 extension for Jira Cloud standups.
 - Accepts Jira's native Shuffle button as an intentional new order.
 - Persists participated check marks across refreshes during the same standup session.
 - Clears the extension cache when Jira's native End standup button is clicked.
+- Optionally shows every board assignee filter in one horizontally scrollable row below the board controls (enabled by default).
 - Optional setting to click Jira board Clear filters after opening a board with active filters.
 
 ## Install from Release
@@ -31,10 +32,11 @@ Chrome Manifest V3 extension for Jira Cloud standups.
 
 ## Options
 
-Open the extension options to enable or disable board filter clearing. This setting is independent from the standup lock state.
+Open the extension options to enable or disable the expanded board assignee row and automatic board filter clearing. The expanded assignee row is enabled by default; automatic filter clearing is disabled by default. These settings are independent from the standup lock state.
 
 ## Files
 
 - `manifest.json` - Chrome extension manifest.
+- `board-assignee-row.js` - expands Jira's compact board assignee filter into a full row.
 - `content.js` - Jira content script.
 - `options.html` / `options.js` - extension options UI.

@@ -2,7 +2,9 @@
   "use strict";
 
   const BOARD_FILTER_SETTING_KEY = "jiraStandupOrderLocker.clearBoardFiltersOnRefresh";
-  const checkbox = document.getElementById("clear-board-filters");
+  const EXPANDED_ASSIGNEE_FILTER_SETTING_KEY = "jiraStandupOrderLocker.expandBoardAssigneeFilters";
+  const clearBoardFiltersCheckbox = document.getElementById("clear-board-filters");
+  const expandBoardAssigneesCheckbox = document.getElementById("expand-board-assignees");
   const status = document.getElementById("status");
 
   const showSaved = () => {
@@ -13,13 +15,24 @@
   };
 
   const load = async () => {
-    const result = await chrome.storage.local.get(BOARD_FILTER_SETTING_KEY);
-    checkbox.checked = result[BOARD_FILTER_SETTING_KEY] === true;
+    const result = await chrome.storage.local.get([
+      BOARD_FILTER_SETTING_KEY,
+      EXPANDED_ASSIGNEE_FILTER_SETTING_KEY
+    ]);
+    clearBoardFiltersCheckbox.checked = result[BOARD_FILTER_SETTING_KEY] === true;
+    expandBoardAssigneesCheckbox.checked = result[EXPANDED_ASSIGNEE_FILTER_SETTING_KEY] !== false;
   };
 
-  checkbox.addEventListener("change", async () => {
+  clearBoardFiltersCheckbox.addEventListener("change", async () => {
     await chrome.storage.local.set({
-      [BOARD_FILTER_SETTING_KEY]: checkbox.checked
+      [BOARD_FILTER_SETTING_KEY]: clearBoardFiltersCheckbox.checked
+    });
+    showSaved();
+  });
+
+  expandBoardAssigneesCheckbox.addEventListener("change", async () => {
+    await chrome.storage.local.set({
+      [EXPANDED_ASSIGNEE_FILTER_SETTING_KEY]: expandBoardAssigneesCheckbox.checked
     });
     showSaved();
   });
