@@ -23,8 +23,17 @@
     showMoreButton: [
       '[data-testid="filters.ui.filters.assignee.stateless.show-more-button.assignee-filter-show-more"]',
       '[data-test-id="filters.ui.filters.assignee.stateless.show-more-button.assignee-filter-show-more"]'
+    ],
+    standupRoot: [
+      '[data-testid="standups.ui.wrapper"]',
+      '[aria-label="Standup"][role="region"]'
     ]
   };
+
+  const STANDUP_PARTICIPANT_SELECTOR = [
+    '[data-testid="rituals.standups.participant.item"]',
+    '[data-test-id="rituals.standups.participant.item"]'
+  ].join(",");
 
   const state = {
     timer: 0,
@@ -59,6 +68,32 @@
 
   const normalizeText = (value) => {
     return String(value ?? "").replace(/\s+/g, " ").trim();
+  };
+
+  const selectedAssigneeIdsFromLocation = () => {
+    const selectedIds = new Set();
+    const parameters = new URLSearchParams(location.search);
+
+    for (const value of parameters.getAll("assignee")) {
+      for (const accountId of value.split(",")) {
+        const normalizedAccountId = normalizeText(accountId);
+        if (normalizedAccountId) {
+          selectedIds.add(normalizedAccountId);
+        }
+      }
+    }
+
+    return selectedIds;
+  };
+
+  const accountIdFromInput = (input) => {
+    return normalizeText(input.getAttribute("value")) ||
+      normalizeText(input.id).replace(/^assignee-/, "");
+  };
+
+  const accountIdFromMenuItem = (item) => {
+    const input = item.querySelector('input[name="assignee"], input[type="checkbox"]');
+    return normalizeText(input?.getAttribute("value")) || normalizeText(item.id);
   };
 
   const isJiraBoardPath = () => {
@@ -113,20 +148,61 @@
     return imageLabel || label;
   };
 
+  const personKey = (value) => {
+    return normalizeText(value)
+      .replace(/\s+\(Participated\)$/i, "")
+      .replace(/\s+\(Skipped from standup\)$/i, "")
+      .toLocaleLowerCase();
+  };
+
+  const nameFromStandupButton = (button) => {
+    const label = normalizeText(button.getAttribute("aria-label"));
+    const text = normalizeText(button.textContent);
+    const name = label || text;
+    if (/^(Add to|Remove from) standup$/i.test(name)) {
+      return "";
+    }
+    return name
+      .replace(/\s+\(Participated\)$/i, "")
+      .replace(/\s+\(Skipped from standup\)$/i, "");
+  };
+
+  const findStandupParticipantButton = (name) => {
+    const root = queryFirst(document, SELECTORS.standupRoot);
+    if (!root) {
+      return null;
+    }
+
+    const expectedKey = personKey(name);
+    for (const item of root.querySelectorAll(STANDUP_PARTICIPANT_SELECTOR)) {
+      const button = Array.from(item.querySelectorAll("button")).find((candidate) => {
+        return personKey(nameFromStandupButton(candidate)) === expectedKey;
+      });
+      if (button) {
+        return button;
+      }
+    }
+
+    return null;
+  };
+
   const imageSourceWithin = (element) => {
     const image = element?.querySelector("img");
     return image?.currentSrc || image?.getAttribute("src") || "";
   };
 
   const collectVisibleAssignees = (fieldset) => {
+    const selectedIds = selectedAssigneeIdsFromLocation();
     return Array.from(
       fieldset.querySelectorAll('input[name="assignee"][type="checkbox"]')
     ).map((input) => {
+      const accountId = accountIdFromInput(input);
       return {
-        key: input.id || nameFromInput(input),
+        key: accountId || input.id || nameFromInput(input),
+        accountId,
         name: nameFromInput(input),
         imageSrc: imageSourceWithin(input.parentElement),
-        selected: input.checked,
+        selected: accountId ? selectedIds.has(accountId) : input.checked,
         native: true
       };
     }).filter((assignee) => assignee.name);
@@ -180,13 +256,18 @@
     try {
       showMoreButton.click();
       const items = await waitForMenuItems(expectedHiddenCount(showMoreButton));
+      const selectedIds = selectedAssigneeIdsFromLocation();
       return items.map((item, index) => {
         const name = normalizeText(item.textContent);
+        const accountId = accountIdFromMenuItem(item);
         return {
-          key: `overflow-${name || index}`,
+          key: accountId || `overflow-${name || index}`,
+          accountId,
           name,
           imageSrc: imageSourceWithin(item),
-          selected: item.getAttribute("aria-checked") === "true",
+          selected: accountId
+            ? selectedIds.has(accountId)
+            : item.getAttribute("aria-checked") === "true",
           native: false
         };
       }).filter((assignee) => assignee.name);
@@ -211,14 +292,17 @@
 
   const mergeAssignees = (visibleAssignees, hiddenAssignees) => {
     const merged = [];
-    const names = new Set();
+    const identities = new Set();
 
     for (const assignee of [...visibleAssignees, ...hiddenAssignees]) {
       const normalizedName = normalizeText(assignee.name).toLocaleLowerCase();
-      if (!normalizedName || names.has(normalizedName)) {
+      const identity = assignee.accountId
+        ? `account:${assignee.accountId}`
+        : `name:${normalizedName}`;
+      if (!normalizedName || identities.has(identity)) {
         continue;
       }
-      names.add(normalizedName);
+      identities.add(identity);
       merged.push(assignee);
     }
 
@@ -299,7 +383,17 @@
     style.id = STYLE_ID;
     style.textContent = `
       [${NATIVE_FILTER_ATTRIBUTE}] {
-        display: none !important;
+        border: 0 !important;
+        clip: rect(0 0 0 0) !important;
+        clip-path: inset(50%) !important;
+        height: 1px !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        padding: 0 !important;
+        pointer-events: none !important;
+        position: absolute !important;
+        white-space: nowrap !important;
+        width: 1px !important;
       }
 
       [${LAYOUT_ATTRIBUTE}] {
@@ -374,6 +468,10 @@
         border-color: var(--ds-border-selected, #0C66E4);
       }
 
+      #${ROW_ID} .jira-standup-locker-assignee-button[aria-pressed="true"] {
+        background: var(--ds-background-selected, #E9F2FF);
+      }
+
       #${ROW_ID} .jira-standup-locker-assignee-button:focus-visible {
         box-shadow: 0 0 0 2px var(--ds-border-focused, #388BFF);
       }
@@ -410,37 +508,105 @@
     (document.head || document.documentElement).appendChild(style);
   };
 
-  const findVisibleInputByName = (fieldset, name) => {
+  const findVisibleInput = (fieldset, assignee) => {
+    if (!fieldset) {
+      return null;
+    }
+
     return Array.from(
       fieldset.querySelectorAll('input[name="assignee"][type="checkbox"]')
-    ).find((input) => nameFromInput(input) === name) ?? null;
+    ).find((input) => {
+      if (assignee.accountId && accountIdFromInput(input) === assignee.accountId) {
+        return true;
+      }
+      return nameFromInput(input) === assignee.name;
+    }) ?? null;
   };
 
-  const setCachedSelectedState = (name, selected) => {
-    const cached = state.assignees.find((assignee) => assignee.name === name);
+  const assigneesMatch = (left, right) => {
+    if (left.accountId && right.accountId) {
+      return left.accountId === right.accountId;
+    }
+    return left.name === right.name;
+  };
+
+  const setCachedSelectedState = (assignee, selected) => {
+    const cached = state.assignees.find((candidate) => assigneesMatch(candidate, assignee));
     if (cached) {
       cached.selected = selected;
     }
   };
 
-  const toggleNativeAssignee = async (fieldset, name) => {
-    const input = findVisibleInputByName(fieldset, name);
+  const setExclusiveSelectedState = (assignee) => {
+    const row = document.getElementById(ROW_ID);
+    for (const candidate of state.assignees) {
+      candidate.selected = assigneesMatch(candidate, assignee);
+      const button = row
+        ? Array.from(row.querySelectorAll("button[data-assignee-name]")).find((rowButton) => {
+          if (candidate.accountId && rowButton.dataset.assigneeId) {
+            return rowButton.dataset.assigneeId === candidate.accountId;
+          }
+          return rowButton.dataset.assigneeName === candidate.name;
+        })
+        : null;
+      button?.setAttribute("aria-pressed", String(candidate.selected));
+    }
+  };
+
+  const waitForLocationSelection = async (accountId, expectedSelected) => {
+    if (!accountId) {
+      return false;
+    }
+
+    const deadline = Date.now() + 900;
+    while (Date.now() < deadline) {
+      if (selectedAssigneeIdsFromLocation().has(accountId) === expectedSelected) {
+        return true;
+      }
+      await delay(40);
+    }
+    return false;
+  };
+
+  const selectStandupParticipant = async (assignee) => {
+    const participantButton = findStandupParticipantButton(assignee.name);
+    if (!participantButton || participantButton.disabled ||
+        participantButton.getAttribute("aria-disabled") === "true") {
+      return null;
+    }
+
+    setExclusiveSelectedState(assignee);
+    participantButton.click();
+    if (assignee.accountId) {
+      await waitForLocationSelection(assignee.accountId, true);
+    } else {
+      await delay(50);
+    }
+    return true;
+  };
+
+  const toggleNativeAssignee = async (fieldset, assignee, selected) => {
+    const input = findVisibleInput(fieldset, assignee);
     if (input) {
       if (input.disabled || input.getAttribute("aria-disabled") === "true") {
         return null;
       }
 
-      const previouslySelected = input.checked;
+      const locationSelected = assignee.accountId
+        ? selectedAssigneeIdsFromLocation().has(assignee.accountId)
+        : input.checked;
+      if (input.checked !== locationSelected) {
+        return null;
+      }
+
       input.click();
-      await delay(50);
-      const currentFilter = findAssigneeFilter();
-      const currentInput = currentFilter
-        ? findVisibleInputByName(currentFilter, name)
-        : null;
-      return currentInput?.checked ?? !previouslySelected;
+      if (!assignee.accountId || await waitForLocationSelection(assignee.accountId, selected)) {
+        return selected;
+      }
+      return null;
     }
 
-    const showMoreButton = findShowMoreButton(fieldset);
+    const showMoreButton = fieldset ? findShowMoreButton(fieldset) : null;
     if (!showMoreButton || showMoreButton.getAttribute("aria-expanded") === "true") {
       return null;
     }
@@ -449,15 +615,28 @@
     try {
       showMoreButton.click();
       const items = await waitForMenuItems(expectedHiddenCount(showMoreButton));
-      const menuItem = items.find((item) => normalizeText(item.textContent) === name);
+      const menuItem = items.find((item) => {
+        if (assignee.accountId && accountIdFromMenuItem(item) === assignee.accountId) {
+          return true;
+        }
+        return normalizeText(item.textContent) === assignee.name;
+      });
       if (!menuItem || menuItem.getAttribute("aria-disabled") === "true") {
         return null;
       }
 
-      const selected = menuItem.getAttribute("aria-checked") !== "true";
+      const locationSelected = assignee.accountId
+        ? selectedAssigneeIdsFromLocation().has(assignee.accountId)
+        : menuItem.getAttribute("aria-checked") === "true";
+      if ((menuItem.getAttribute("aria-checked") === "true") !== locationSelected) {
+        return null;
+      }
+
       menuItem.click();
-      await delay(50);
-      return selected;
+      if (!assignee.accountId || await waitForLocationSelection(assignee.accountId, selected)) {
+        return selected;
+      }
+      return null;
     } finally {
       closeAssigneeMenu();
       await delay(0);
@@ -473,20 +652,35 @@
       return;
     }
 
-    const name = button.dataset.assigneeName;
-    const previousSelected = button.getAttribute("aria-pressed") === "true";
+    const assignee = state.assignees.find((candidate) => {
+      if (button.dataset.assigneeId && candidate.accountId) {
+        return candidate.accountId === button.dataset.assigneeId;
+      }
+      return candidate.name === button.dataset.assigneeName;
+    });
+    if (!assignee) {
+      return;
+    }
+
+    const standupParticipant = findStandupParticipantButton(assignee.name);
+    const previousSelected = assignee.accountId
+      ? selectedAssigneeIdsFromLocation().has(assignee.accountId)
+      : button.getAttribute("aria-pressed") === "true";
+    const requestedSelected = standupParticipant ? true : !previousSelected;
     button.disabled = true;
+    button.setAttribute("aria-pressed", String(requestedSelected));
 
     try {
-      const fieldset = findAssigneeFilter();
-      const selected = fieldset ? await toggleNativeAssignee(fieldset, name) : null;
+      const selected = standupParticipant
+        ? await selectStandupParticipant(assignee)
+        : await toggleNativeAssignee(findAssigneeFilter(), assignee, requestedSelected);
       if (selected === null) {
         button.setAttribute("aria-pressed", String(previousSelected));
         return;
       }
 
       button.setAttribute("aria-pressed", String(selected));
-      setCachedSelectedState(name, selected);
+      setCachedSelectedState(assignee, selected);
     } finally {
       button.disabled = false;
       if (button.isConnected) {
@@ -520,6 +714,7 @@
     for (const fieldset of document.querySelectorAll(`[${NATIVE_FILTER_ATTRIBUTE}]`)) {
       if (fieldset !== except.fieldset) {
         fieldset.removeAttribute(NATIVE_FILTER_ATTRIBUTE);
+        fieldset.removeAttribute("aria-hidden");
       }
     }
 
@@ -551,14 +746,22 @@
     const previousScrollLeft = row.scrollLeft;
     row.replaceChildren();
     row.dataset.sourceSignature = signature;
+    const selectedIds = selectedAssigneeIdsFromLocation();
 
     for (const assignee of assignees) {
+      const selected = assignee.accountId
+        ? selectedIds.has(assignee.accountId)
+        : Boolean(assignee.selected);
+      assignee.selected = selected;
       const button = document.createElement("button");
       button.type = "button";
       button.className = "jira-standup-locker-assignee-button";
       button.dataset.assigneeName = assignee.name;
+      if (assignee.accountId) {
+        button.dataset.assigneeId = assignee.accountId;
+      }
       button.setAttribute("aria-label", `Filter assignees by ${assignee.name}`);
-      button.setAttribute("aria-pressed", String(Boolean(assignee.selected)));
+      button.setAttribute("aria-pressed", String(selected));
       button.title = assignee.name;
       button.appendChild(createAvatar(assignee));
       row.appendChild(button);
@@ -566,11 +769,38 @@
 
     row.scrollLeft = previousScrollLeft;
     fieldset.setAttribute(NATIVE_FILTER_ATTRIBUTE, "true");
+    fieldset.setAttribute("aria-hidden", "true");
     host.setAttribute(LAYOUT_ATTRIBUTE, "true");
     header.setAttribute(LAYOUT_ATTRIBUTE, "true");
     clearLayoutMarkers({ fieldset, host, header });
     state.activeFieldset = fieldset;
     return true;
+  };
+
+  const findRowButton = (row, assignee) => {
+    return Array.from(row.querySelectorAll("button[data-assignee-name]")).find((button) => {
+      if (assignee.accountId && button.dataset.assigneeId) {
+        return button.dataset.assigneeId === assignee.accountId;
+      }
+      return button.dataset.assigneeName === assignee.name;
+    }) ?? null;
+  };
+
+  const syncSelectionsFromLocation = () => {
+    const row = document.getElementById(ROW_ID);
+    if (!row) {
+      return;
+    }
+
+    const selectedIds = selectedAssigneeIdsFromLocation();
+    for (const assignee of state.assignees) {
+      if (!assignee.accountId) {
+        continue;
+      }
+
+      assignee.selected = selectedIds.has(assignee.accountId);
+      findRowButton(row, assignee)?.setAttribute("aria-pressed", String(assignee.selected));
+    }
   };
 
   const syncVisibleSelections = (fieldset) => {
@@ -579,11 +809,10 @@
       return;
     }
 
+    syncSelectionsFromLocation();
     for (const visible of collectVisibleAssignees(fieldset)) {
-      setCachedSelectedState(visible.name, visible.selected);
-      const button = Array.from(row.querySelectorAll("button[data-assignee-name]")).find((candidate) => {
-        return candidate.dataset.assigneeName === visible.name;
-      });
+      setCachedSelectedState(visible, visible.selected);
+      const button = findRowButton(row, visible);
       button?.setAttribute("aria-pressed", String(visible.selected));
     }
   };
@@ -625,6 +854,7 @@
 
       const fieldset = findAssigneeFilter();
       if (!fieldset) {
+        syncSelectionsFromLocation();
         return;
       }
 
@@ -721,7 +951,40 @@
     const label = normalizeText(trigger.getAttribute("aria-label"));
     if (/^Clear filters$/i.test(normalizeText(trigger.textContent)) || /^Clear filters$/i.test(label)) {
       clearSelectedStatesSoon();
+      return;
     }
+
+    const standupRoot = queryFirst(document, SELECTORS.standupRoot);
+    if (!standupRoot || !standupRoot.contains(trigger)) {
+      return;
+    }
+
+    const participantItem = trigger.closest(STANDUP_PARTICIPANT_SELECTOR);
+    const participantName = participantItem ? nameFromStandupButton(trigger) : "";
+    if (participantName) {
+      const assignee = state.assignees.find((candidate) => {
+        return personKey(candidate.name) === personKey(participantName);
+      });
+      if (assignee) {
+        setExclusiveSelectedState(assignee);
+      }
+    }
+
+    scheduleEnhancement("standup selection changed");
+  };
+
+  const watchUrlChanges = () => {
+    const notify = () => scheduleEnhancement("url changed");
+    for (const method of ["pushState", "replaceState"]) {
+      const original = history[method];
+      history[method] = function patchedHistoryMethod(...args) {
+        const result = original.apply(this, args);
+        notify();
+        return result;
+      };
+    }
+    window.addEventListener("popstate", notify);
+    window.addEventListener("hashchange", notify);
   };
 
   const onSettingChanged = (changes, areaName) => {
@@ -745,11 +1008,7 @@
 
   const start = async () => {
     document.addEventListener("click", onDocumentClick, true);
-    window.addEventListener("popstate", () => {
-      state.sourceSignature = "";
-      scheduleEnhancement("history changed");
-    });
-    window.addEventListener("hashchange", () => scheduleEnhancement("hash changed"));
+    watchUrlChanges();
 
     const observer = new MutationObserver(() => scheduleEnhancement("dom mutated"));
     observer.observe(document.documentElement, {

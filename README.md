@@ -12,6 +12,7 @@ Chrome Manifest V3 extension for Jira Cloud standups.
 - Persists participated check marks across refreshes during the same standup session.
 - Clears the extension cache when Jira's native End standup button is clicked.
 - Optionally shows every board assignee filter in one horizontally scrollable row below the board controls (enabled by default).
+- Keeps the expanded assignee row and the active Standup participant synchronized in both directions.
 - Optional setting to click Jira board Clear filters after opening a board with active filters.
 
 ## Install from Release
