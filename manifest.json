@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jira Standup Order Locker",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "Locks Jira Cloud Standup order and expands board assignee filters.",
   "permissions": ["storage"],
   "options_ui": {
